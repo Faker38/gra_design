@@ -1,0 +1,53 @@
+import torch
+import torch.nn as nn
+
+class ResidualBlock1D(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1):
+        super(ResidualBlock1D, self).__init__()
+        self.convs = nn.Sequential(
+            nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+            nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(out_channels)
+        )
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=stride),
+                nn.BatchNorm1d(out_channels)
+            )
+
+    def forward(self, x):
+        return nn.functional.relu(self.convs(x) + self.shortcut(x))
+
+class ARPLFeatureExtractor(nn.Module):
+    def __init__(self, feat_dim=128):
+        super(ARPLFeatureExtractor, self).__init__()
+        
+        # --- 修改后的前端：通道数必须环环相扣 ---
+        self.frontend = nn.Sequential(
+            # 第一层：2 -> 128
+            ResidualBlock1D(2, 128, stride=2),    
+            # 第二层：上一层输出 128，所以这一层输入必须是 128！ (128 -> 256)
+            ResidualBlock1D(128, 256, stride=2),  
+            # 第三层：上一层输出 256，所以这一层输入必须是 256！ (256 -> feat_dim)
+            ResidualBlock1D(256, feat_dim, stride=2) 
+        )
+        
+        # 中端 Transformer (d_model 必须和上面的 feat_dim 一致)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=feat_dim, 
+            nhead=8, 
+            dim_feedforward=1024, # 这里的维度加大可以增强非线性表达
+            batch_first=True
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=3)
+
+    def forward(self, x):
+        # x shape: [Batch, 2, 1024]
+        x = self.frontend(x)         # -> [Batch, 128, 128]
+        x = x.permute(0, 2, 1)        # -> [Batch, 128, 128] (适配 Transformer)
+        x = self.transformer(x)
+        feat = torch.mean(x, dim=1)  # 全局平均池化
+        return feat

@@ -1,0 +1,57 @@
+import torch
+import numpy as np
+from arpl_model import ARPLFeatureExtractor # 确保用的是 94% 准确率对应的那个模型结构
+from arpl_loss import ARPLLoss
+from arpl_data import get_arpl_loader
+import matplotlib.pyplot as plt
+
+# --- 配置 ---
+CHECKPOINT_PATH = "arpl_checkpoint_epoch_40.pth" # 那个 94% 的模型文件
+UNKNOWN_DATA_PATH = r"E:\gratuate_design\unknown_data" # 存放你藏起来的 ID
+KNOWN_DATA_PATH = r"E:\gratuate_design\data"    # 存放参与训练的 ID
+DEVICE = torch.device("cuda")
+
+def evaluate_osr():
+    # 1. 加载模型和互惠点
+    # 注意：这里的参数要和你 94% 那个版本完全一致！
+    model = ARPLFeatureExtractor(feat_dim=128).to(DEVICE)
+    criterion = ARPLLoss(num_classes=52, feat_dim=128).to(DEVICE)
+    
+    checkpoint = torch.load(CHECKPOINT_PATH)
+    model.load_state_dict(checkpoint['model'])
+    criterion.load_state_dict(checkpoint['criterion'])
+    model.eval()
+
+    def get_distances(path):
+        loader = get_arpl_loader(path, batch_size=32)
+        all_dists = []
+        with torch.no_grad():
+            for data, _ in loader:
+                data = data.to(DEVICE)
+                feat = model(data)
+                # 计算到所有互惠点的最小距离 (即判定为某一类的依据)
+                # dists shape: [Batch, Num_Classes]
+                dists = torch.cdist(feat, criterion.reciprocal_points)
+                min_dists, _ = torch.min(dists, dim=1)
+                all_dists.extend(min_dists.cpu().numpy())
+        return all_dists
+
+    print("正在计算已知类的距离分布...")
+    known_dists = get_distances(KNOWN_DATA_PATH)
+    
+    print("正在计算未知类的距离分布...")
+    unknown_dists = get_distances(UNKNOWN_DATA_PATH)
+
+    # 3. 可视化：这是你论文里最关键的图！
+    plt.figure(figsize=(10, 6))
+    plt.hist(known_dists, bins=50, alpha=0.6, label='Known IDs (Correctly IDed)', color='blue', density=True)
+    plt.hist(unknown_dists, bins=50, alpha=0.6, label='Unknown IDs (Intruders)', color='red', density=True)
+    plt.axvline(x=np.percentile(known_dists, 95), color='green', linestyle='--', label='95% Threshold')
+    plt.title("ARPL Distance Distribution: Known vs Unknown")
+    plt.xlabel("Distance to Reciprocal Points")
+    plt.ylabel("Density")
+    plt.legend()
+    plt.show()
+
+if __name__ == "__main__":
+    evaluate_osr()

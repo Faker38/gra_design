@@ -1,0 +1,8 @@
+*.mat
+*.pth
+*.pkl
+/data_known/
+/data_unknown/
+/runs/
+__pycache__/
+.ipynb_checkpoints/
