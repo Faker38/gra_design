@@ -9,15 +9,21 @@ class ARPLLoss(nn.Module):
         # 互惠点：每个类在空间中都有一个“对立坐标”
         self.reciprocal_points = nn.Parameter(torch.Tensor(num_classes, feat_dim))
         nn.init.xavier_uniform_(self.reciprocal_points)
+        # 距离损失权重，建议设为 0.1
+        self.weight_dist = 0.1 
 
     def forward(self, feat, labels):
         # 计算特征到所有互惠点的欧氏距离
-        # dist shape: [Batch, Num_Classes]
-        dist = torch.cdist(feat, self.reciprocal_points)
+        dist = torch.cdist(feat, self.reciprocal_points) # [Batch, 42]
         
-        # ARPL 核心：最小化样本与其对应类互惠点之间的负距离（即推开它们）
-        # 这里使用负距离作为 Logits
+        # 1. 分类损失 (Logits)
         logits = -dist 
-        loss = F.cross_entropy(logits, labels)
+        loss_ce = F.cross_entropy(logits, labels)
         
-        return loss, logits
+        # 2. 距离约束损失 (Dist Loss)
+        # 提取当前样本与其所属正确类别的互惠点之间的距离
+        dot_dist = dist.gather(1, labels.view(-1, 1))
+        loss_dist = torch.mean(dot_dist)
+        
+        # 总损失：分类 + 紧凑度约束
+        return loss_ce + self.weight_dist * loss_dist, logits
