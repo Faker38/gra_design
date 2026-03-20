@@ -5,4 +5,5 @@
 /data_unknown/
 /runs/
 __pycache__/
+/domian_data/
 .ipynb_checkpoints/
