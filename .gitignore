@@ -7,3 +7,4 @@
 __pycache__/
 /domian_data/
 .ipynb_checkpoints/
+processed_pt/
